@@ -67,6 +67,11 @@ interface Marker {
   description?: string;
 }
 
+const MIN_X = '?MinX'
+const MIN_Y = '?MinY'
+const MAX_X = '?MaxX'
+const MAX_Y = '?MaxY'
+
 export interface SemanticMapConfig {
   /**
    * SPARQL Select query. Query should project `lat` and `lng`, with the WKT point.
@@ -97,6 +102,8 @@ export interface SemanticMapConfig {
    * of available markers.
    */
   fixZoomLevel?: number;
+
+  extent?: Array<number>;
 
   /**
    * ID for issuing component events.
@@ -235,7 +242,7 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
   private readWKT(wkt: string) {
     const format = new WKT();
     return format.readGeometry(wkt, {
-      dataProjection: 'EPSG:4326',
+      dataProjection: 'EPSG:3857',
       featureProjection: 'EPSG:3857',
     });
   }
@@ -282,7 +289,7 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
       style: (feature: Feature) => {
         const geometry = feature.getGeometry();
         const color = feature.get('color');
-        return getFeatureStyle(geometry, color ? color.value : undefined);
+        return getFeatureStyle(geometry, 'rgba(77, 175, 124, .2)');
       },
       zIndex: 0,
     });
@@ -309,7 +316,8 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
         target: node,
         view: new View({
           center: this.transformToMercator(parseFloat(center.lng), parseFloat(center.lat)),
-          zoom: 1,
+          zoom: 3,
+          extent:props.extent
         }),
       });
 
@@ -320,16 +328,37 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
       this.addMarkersFromQuery(this.props, this.context);
 
       this.initializeMarkerPopup(map);
-      // map.getView().fit(markersSource.getExtent(), map.getSize());
+      map.getView().fit(props.extent);
 
       window.addEventListener('resize', () => {
         map.updateSize();
       });
+
+      this.map.on('moveend', () => {
+        this.addMarkersFromQuery(this.props, this.context)
+      })
+
+      this.map.on('singleclick', (e) =>{
+        console.log(e.coordinate)
+      })
+
+      const view = this.map.getView();
+      const extent = this.calculateExtent();
+      view.fit(extent, { maxZoom: 10 });
+
     }, 1000);
   }
-
+ 
   addMarkersFromQuery = (props: SemanticMapProps, context: ComponentContext) => {
-    const { query, fixZoomLevel } = props;
+    let { query } = props;
+
+
+    const bbCoords = this.map.getView().calculateExtent(this.map.getSize())
+
+    query = query.replace(MIN_X, `"${bbCoords[0]}"`)
+    query = query.replace(MIN_Y, `"${bbCoords[1]}"`)
+    query = query.replace(MAX_X, `"${bbCoords[2]}"`)
+    query = query.replace(MAX_Y, `"${bbCoords[3]}"`)
 
     if (query) {
       const stream = SparqlClient.select(query, { context: context.semanticContext });
@@ -352,13 +381,13 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
           const geometries = this.createGeometries(m);
           this.updateLayers(geometries);
 
-          const view = this.map.getView();
-          const extent = this.calculateExtent();
-          view.fit(extent, { maxZoom: 10 });
+          
 
-          if (fixZoomLevel) {
-            view.setZoom(fixZoomLevel);
-          }
+
+
+//          if (fixZoomLevel) {
+//            view.setZoom(fixZoomLevel);
+//          }
         }
       });
 
@@ -541,7 +570,7 @@ function getFeatureStyle(geometry: Geometry, color: string | undefined) {
     geometry,
     fill: new Fill({ color: color || 'rgba(255, 255, 255, 0.5)' }),
     stroke: new Stroke({
-      color: color || '#3399CC',
+      color: color || 'rgba(202, 105, 36, .3)',
       width: 1.25,
     }),
   });
