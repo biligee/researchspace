@@ -125,6 +125,7 @@ const MAP_REF = 'researchspace-map-widget';
 export class SemanticMap extends Component<SemanticMapProps, MapState> {
   private layers: { [id: string]: VectorLayer };
   private map: Map;
+  private featuresList: Array<any>;
 
   constructor(props: SemanticMapProps, context: ComponentContext) {
     super(props, context);
@@ -134,6 +135,8 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
       isLoading: true,
       errorMessage: maybe.Nothing<string>(),
     };
+
+    this.featuresList = new Array<any>();
   }
 
   private static createPopupContent(props, tupleTemplate: Data.Maybe<HandlebarsTemplateDelegate>) {
@@ -191,7 +194,7 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
           className: 'researchspace-map-widget-elements',
           ref: 'ref-map-widget-elements',
           onClick: this.getMarkerFromMapAsElements.bind(this),
-          style: { display: 'none' },
+          style: { display: 'none' },        
         })
       ),
       this.state.isLoading ? createElement(Spinner) : null
@@ -289,7 +292,7 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
       style: (feature: Feature) => {
         const geometry = feature.getGeometry();
         const color = feature.get('color');
-        return getFeatureStyle(geometry, 'rgba(77, 175, 124, .2)');
+        return getFeatureStyle(geometry, 'rgba(77, 175, 124, .5)');
       },
       zIndex: 0,
     });
@@ -334,13 +337,13 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
         map.updateSize();
       });
 
-      this.map.on('moveend', () => {
-        this.addMarkersFromQuery(this.props, this.context)
-      })
+      //this.map.on('moveend', () => {
+        //this.addMarkersFromQuery(this.props, this.context)
+      //})
 
-      this.map.on('singleclick', (e) =>{
-        console.log(e.coordinate)
-      })
+      //this.map.on('singleclick', (e) =>{
+      //  console.log(e)
+      //})
 
       const view = this.map.getView();
       const extent = this.calculateExtent();
@@ -348,13 +351,30 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
 
     }, 1000);
   }
- 
-  addMarkersFromQuery = (props: SemanticMapProps, context: ComponentContext) => {
+
+  updateMarkers = (date?: number) => {
+
+    let list;
+
+    if (date)
+      list = _.filter(this.featuresList, (v) => (typeof v.end_date == 'undefined' ? 
+      Date.parse(v.start_date.value) <= date : 
+      Date.parse(v.start_date.value) <= date && Date.parse(v.end_date.value) >= date) && !v.bw_id.value.startsWith('SS_IS'));
+    else 
+      list = this.featuresList;
+
+    const geometries = this.createGeometries(list);
+    this.updateLayers(geometries);
+  }
+  
+  addMarkersFromQuery = (props: SemanticMapProps, context: ComponentContext, date?: number) => {
     let { query } = props;
 
+    if (!date) date = Date.parse('2019-01-01')
 
     const bbCoords = this.map.getView().calculateExtent(this.map.getSize())
 
+    // TODO: refine this passage
     query = query.replace(MIN_X, `"${bbCoords[0]}"`)
     query = query.replace(MIN_Y, `"${bbCoords[1]}"`)
     query = query.replace(MAX_X, `"${bbCoords[2]}"`)
@@ -362,9 +382,11 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
 
     if (query) {
       const stream = SparqlClient.select(query, { context: context.semanticContext });
-
+      
       stream.onValue((res) => {
-        const m = _.map(res.results.bindings, (v) => <any>_.mapValues(v, (x) => x));
+
+        this.featuresList = _.map(res.results.bindings, (v) => _.mapValues(v, (x) => x) as any);
+
         if (SparqlUtil.isSelectResultEmpty(res)) {
           this.setState({
             noResults: true,
@@ -378,16 +400,7 @@ export class SemanticMap extends Component<SemanticMapProps, MapState> {
             isLoading: false,
           });
 
-          const geometries = this.createGeometries(m);
-          this.updateLayers(geometries);
-
-          
-
-
-
-//          if (fixZoomLevel) {
-//            view.setZoom(fixZoomLevel);
-//          }
+          this.updateMarkers(date);
         }
       });
 
